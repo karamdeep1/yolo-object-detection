@@ -1,0 +1,8 @@
+path: datasets/peopleAndTents
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: Person
+  1: Tent
