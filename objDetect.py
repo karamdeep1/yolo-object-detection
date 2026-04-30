@@ -1,20 +1,75 @@
 from ultralytics import YOLO
+import time
 
 def main():
     # get the trained model
-    model = YOLO("runs/detect/train/weights/best.pt")
+    model = YOLO("runs/detect/train3/weights/best.pt")
 
-    #run the model on one of the images
-    #conf: confidence threshold which is how confident the model must be to show a detection 
-    #      (conf=0.25 means detections greater than or equal to 25% are kept)
-    results = model("images/tent.webp", conf=0.02)
+    results = model.predict(
+        source="images/canopyTentPeople.webp",
+        imgsz=640,
+        conf=0.15,
+        device=0,
+        half=True,
+        save=False,
+        verbose=False
+    )
 
-    #print results of the model evaluation of the image
+    detections = []
+
+    for box in results[0].boxes:
+        cls_id = int(box.cls.item())
+        conf = float(box.conf.item())
+        x1, y1, x2, y2 = box.xyxy[0].tolist()
+
+        detections.append({
+            "class_id": cls_id,
+            "class_name": results[0].names[cls_id],
+            "confidence": conf,
+            "bbox": [x1, y1, x2, y2]
+        })
+
+    print(detections)
+
+    return detections
+
+def optimizedModel():
+    model = YOLO("runs/detect/train3/weights/best.onnx")
+
+    #warm up
+    for _ in range(3):
+        results = model.predict(
+            source="images/canopyTent.jpg",
+            imgsz=640,
+            conf=0.15,
+            device=0,
+            save=True,
+            verbose=False
+        )
+
+    #actual runs
+    runs = 20
+
+    start = time.time()
+    for _ in range(runs):
+        results = model.predict(
+            source="images/canopyTent.jpg",
+            imgsz=640,
+            conf=0.15,
+            device=0,
+            save=True,
+            verbose=False
+        )
+    end = time.time()
+
+
+    avg_time = (end - start) / runs
+    fps = 1 / avg_time
+
+    print(f"Average time per image: {avg_time:.4f} s")
+    print(f"Average FPS: {fps:.2f}")
+
     print(results[0].boxes)
 
-    #save the output image with detections (for example if the model outlined a box around an object)
-    results[0].save("images/output.jpg")
-    return results
-
 if __name__ == "__main__":
-    main()
+    optimizedModel()
