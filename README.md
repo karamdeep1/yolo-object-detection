@@ -8,7 +8,7 @@ pip install -U ultralytics
 
 2. install numpy
 ```
-uv pip install numpy
+pip install numpy
 ```
 
 3. install pytorch
