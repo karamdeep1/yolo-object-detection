@@ -172,3 +172,97 @@ If `runs/detect/train3/weights/best.engine` exists, `objDetect.py` will automati
 - `--classes`: comma-separated class IDs, such as `1` for tents only
 - `--benchmark`: run repeated inference and print average FPS
 - `--json`: print formatted detection JSON
+- `--api-url`: POST detection JSON to an HTTP endpoint
+- `--api-every`: for streams, POST every Nth processed frame
+
+## Sending Detections To A Raspberry Pi
+`objDetect.py` can send detection results to a Raspberry Pi over HTTP. This is useful when the model runs on a laptop/flight computer, but the Pi needs the detections for logging, telemetry, or control logic.
+
+On the Raspberry Pi, start the receiver:
+```
+python pi_receiver.py --host 0.0.0.0 --port 8000
+```
+
+Find the Pi's IP address:
+```
+hostname -I
+```
+
+On the computer running the model, send detections to the Pi:
+```
+python objDetect.py --fast --classes 1 --api-url http://RASPBERRY_PI_IP:8000/detections
+```
+
+For a flight video or camera stream:
+```
+python objDetect.py --fast --source path\to\flight_video.mp4 --stream --classes 1 --vid-stride 2 --api-url http://RASPBERRY_PI_IP:8000/detections
+```
+
+To reduce network traffic, send every fifth processed frame:
+```
+python objDetect.py --fast --source path\to\flight_video.mp4 --stream --classes 1 --api-every 5 --api-url http://RASPBERRY_PI_IP:8000/detections
+```
+
+The Pi receiver writes the newest payload to:
+```
+latest_detections.json
+```
+
+The JSON payload includes the source, model path, timestamp, class name, confidence, and bounding box coordinates.
+
+## Running The Model On A Raspberry Pi CPU
+For a Raspberry Pi with no GPU, export the trained model to NCNN. NCNN is a lightweight CPU inference format that is usually a better fit for ARM devices than TensorRT.
+
+On your training computer, export the Pi model:
+```
+python exportRaspberryPi.py --format ncnn --imgsz 640
+```
+
+This creates an exported model folder near the `.pt` weights, usually named something like:
+```
+runs/detect/train3/weights/best_ncnn_model
+```
+
+Copy the exported folder, `objDetect.py`, and any input images/videos to the Raspberry Pi.
+
+On the Raspberry Pi, install runtime dependencies:
+```
+pip install -U ultralytics
+```
+
+Run CPU inference on the Pi:
+```
+python objDetect.py --model runs/detect/train3/weights/best_ncnn_model --source images/canopyTentPeople.webp --device cpu --classes 1 --imgsz 640
+```
+
+For more FPS on the Pi, test smaller image sizes:
+```
+python objDetect.py --model runs/detect/train3/weights/best_ncnn_model --source images/canopyTentPeople.webp --device cpu --classes 1 --imgsz 512 --benchmark --runs 50
+python objDetect.py --model runs/detect/train3/weights/best_ncnn_model --source images/canopyTentPeople.webp --device cpu --classes 1 --imgsz 416 --benchmark --runs 50
+```
+
+If NCNN export does not work on your setup, export ONNX as a fallback:
+```
+python exportRaspberryPi.py --format onnx --imgsz 640 --simplify
+```
+
+## Main commands:
+On the Pi:
+```
+python pi_receiver.py --host 0.0.0.0 --port 8000
+```
+
+On the model computer:
+```
+python objDetect.py --fast --classes 1 --api-url http://RASPBERRY_PI_IP:8000.detections
+```
+
+Export a CPU model for the Pi:
+```
+python exportRaspberryPi.py --format ncnn --imgsz 640
+```
+
+Run that exported model on the Pi:
+```
+python objDetect.py --model runs/detect/train3/weights/best_ncnn_model --source images/canopyTentPeople.webp --device cpu --classes 1
+```

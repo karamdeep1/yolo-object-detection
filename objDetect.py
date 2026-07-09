@@ -1,6 +1,8 @@
 import argparse
 import json
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -11,7 +13,7 @@ FAST_MAX_DET = 50
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run canopy tent/person detection.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Path to a .pt, .onnx, or .engine model.")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Path to a .pt, .onnx, .engine, or exported model folder.")
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="Image, video, directory, or camera source.")
     parser.add_argument("--imgsz", type=int, default=640, help="Inference image size.")
     parser.add_argument("--conf", type=float, default=0.15, help="Confidence threshold.")
@@ -30,6 +32,9 @@ def parse_args():
     parser.add_argument("--benchmark", action="store_true", help="Run repeated inference and report average speed.")
     parser.add_argument("--runs", type=int, default=20, help="Benchmark inference runs.")
     parser.add_argument("--warmup", type=int, default=3, help="Benchmark warmup runs.")
+    parser.add_argument("--api-url", help="HTTP endpoint that receives detection JSON.")
+    parser.add_argument("--api-timeout", type=float, default=1.0, help="Seconds to wait for API POST responses.")
+    parser.add_argument("--api-every", type=int, default=1, help="For streams, POST every Nth processed frame.")
     parser.add_argument("--json", action="store_true", help="Print detections as formatted JSON.")
     args = parser.parse_args()
 
@@ -40,6 +45,9 @@ def parse_args():
 
     if args.classes:
         args.classes = [int(class_id.strip()) for class_id in args.classes.split(",")]
+
+    if args.api_every < 1:
+        parser.error("--api-every must be 1 or greater")
 
     return args
 
@@ -84,6 +92,23 @@ def load_model(model_path):
         ) from exc
 
     return YOLO(str(model_path))
+
+
+def post_json(url, payload, timeout):
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, TimeoutError) as exc:
+        print(f"API POST failed: {exc}")
+        return False
 
 
 def predict(model, args, verbose=False):
@@ -146,6 +171,13 @@ def summarize_result(result):
 def run_once(model, args):
     results = predict(model, args)
     detections = collect_detections(results)
+    payload = {
+        "type": "image_batch",
+        "timestamp": time.time(),
+        "model": str(args.model),
+        "source": str(args.source),
+        "images": detections,
+    }
 
     if args.json:
         print(json.dumps(detections, indent=2))
@@ -159,6 +191,9 @@ def run_once(model, args):
                     f"{detection['bbox_xyxy']}"
                 )
 
+    if args.api_url:
+        post_json(args.api_url, payload, args.api_timeout)
+
     return detections
 
 
@@ -171,7 +206,20 @@ def run_stream(model, args):
         frame_count += 1
         elapsed = time.perf_counter() - start
         fps = frame_count / elapsed if elapsed else 0
+        detections = collect_detections([result])[0]
         print(f"Frame {frame_count}: {summarize_result(result)} | {fps:.2f} FPS")
+
+        if args.api_url and frame_count % args.api_every == 0:
+            payload = {
+                "type": "frame",
+                "timestamp": time.time(),
+                "frame": frame_count,
+                "fps": round(fps, 2),
+                "model": str(args.model),
+                "source": str(args.source),
+                "image": detections,
+            }
+            post_json(args.api_url, payload, args.api_timeout)
 
     return frame_count
 
