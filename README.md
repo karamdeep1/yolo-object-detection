@@ -69,9 +69,106 @@ Currently there is a [runs](runs) directory which contains a **yolo26m.pt** mode
 Inside this train directory, you will see a **weights** directory which has the best model created from training and the most recent model created from training. You can use whichever model you wish to use object detection on images in the **objDetect.py** script. Just make sure you change the model in the script.
 
 ## Running The Model
-To test the model on an image you can run the **objDetect.py** script like so:
+`objDetect.py` runs detection from the command line. By default it uses:
+
+- model: `runs/detect/train3/weights/best.pt`
+- source image: `images/canopyTentPeople.webp`
+- classes:
+  - `0`: Person
+  - `1`: Tent
+
+To test the default image, run:
 ```
-python ./objDetect.py
+python objDetect.py
 ```
 
-To test the model on different images you can just change the image directory in **objDetect.py**. You should see the output in **images/output.jpg**. Results will also print to the terminal as well
+To test a different image, pass `--source`:
+```
+python objDetect.py --source images/canopyTent.jpg
+```
+
+To run detection on a whole folder of images:
+```
+python objDetect.py --source images
+```
+
+To save annotated prediction images, add `--save`:
+```
+python objDetect.py --source images/canopyTent.jpg --save
+```
+
+Saved predictions are written by Ultralytics into a `runs/detect/predict...` directory.
+
+### Tent-Only Detection
+If you only care about canopy tents, use `--classes 1`. This ignores people and only returns the `Tent` class:
+```
+python objDetect.py --source images/canopyTentPeople.webp --classes 1
+```
+
+### Fast Airborne Inference
+For airborne use, use `--fast`. This turns on speed-focused settings like FP16 inference, disables saving, and limits the maximum detections per frame:
+```
+python objDetect.py --fast --classes 1
+```
+
+To benchmark FPS on the default image:
+```
+python objDetect.py --fast --benchmark --runs 100 --classes 1
+```
+
+To test different image sizes for the FPS/accuracy tradeoff:
+```
+python objDetect.py --fast --benchmark --runs 100 --classes 1 --imgsz 640
+python objDetect.py --fast --benchmark --runs 100 --classes 1 --imgsz 512
+python objDetect.py --fast --benchmark --runs 100 --classes 1 --imgsz 416
+```
+
+Lower `imgsz` usually gives more FPS, but can miss small tents from altitude. Test with real flight imagery before choosing the final value.
+
+### Video Or Camera Input
+For a flight video, use `--stream` so frames are processed one at a time:
+```
+python objDetect.py --fast --source path\to\flight_video.mp4 --stream --classes 1
+```
+
+To skip frames for more throughput, use `--vid-stride`. For example, this runs detection on every second frame:
+```
+python objDetect.py --fast --source path\to\flight_video.mp4 --stream --classes 1 --vid-stride 2
+```
+
+For a webcam or camera device:
+```
+python objDetect.py --fast --source 0 --stream --classes 1
+```
+
+### TensorRT For Maximum NVIDIA GPU FPS
+If you have an NVIDIA GPU, TensorRT is usually faster than the `.pt` or `.onnx` model.
+
+Export the model:
+```
+python exportModel.py
+```
+
+Then run the exported engine:
+```
+python objDetect.py --model runs/detect/train3/weights/best.engine --fast --benchmark --runs 100 --classes 1
+```
+
+If `runs/detect/train3/weights/best.engine` exists, `objDetect.py` will automatically use it when you run the default model path.
+
+### Useful Options
+- `--model`: path to a `.pt`, `.onnx`, or `.engine` model
+- `--source`: image, folder, video, camera index, or stream URL
+- `--imgsz`: inference image size, such as `640`, `512`, or `416`
+- `--conf`: confidence threshold
+- `--iou`: NMS IoU threshold
+- `--device`: device to use, such as `0` for GPU or `cpu`
+- `--half`: use FP16 inference when supported
+- `--fast`: speed-focused airborne defaults
+- `--save`: save annotated prediction images
+- `--stream`: process video/camera sources frame by frame
+- `--vid-stride`: run inference on every Nth video frame
+- `--max-det`: maximum detections per image/frame
+- `--classes`: comma-separated class IDs, such as `1` for tents only
+- `--benchmark`: run repeated inference and print average FPS
+- `--json`: print formatted detection JSON
